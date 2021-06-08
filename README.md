@@ -11,9 +11,10 @@ Carpeta Dataset
 Conté els dos datasets originals
 train.csv
 test.csv
-Arxiu de treball i final després de netejar les dades
-titanic_train_net.csv:
+
+Arxiu de treball i final després de netejar les dades: titanic_train_net.csv
 
 Codi_respostes.rmd: Conté el codi font amb el qual s'ha realitzat la pràctica
+
 Codi_respostes.html: Conté totes les respostes a les preguntes plantejades per la pràctica
 
