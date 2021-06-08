@@ -1,0 +1,359 @@
+---
+title: 'Tipologia y cicle de vida de les dades: PRA2'
+author: "Autor: Jaume Anguera Llort"
+date: "Juny 2021"
+output:
+  html_document:
+    highlight: default
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_depth: 2
+  word_document: default
+  pdf_document:
+    highlight: zenburn
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Objectius
+
+● Aprendre a aplicar els coneixements adquirits i la seva capacitat de resolució de problemes en entorns nous o poc coneguts dintre de contextos més amplis o multidisciplinaris.
+
+● Saber identificar les dades rellevants i els tractaments necessaris (integració, neteja i validació) per dur a terme un projecte analític.
+
+● Aprendre a analitzar les dades adequadament per abordar la informació continguda en les dades.
+
+● Identificar la millor representació dels resultats per tal d’aportar conclusions sobre el problema plantejat en el procés analític.
+
+● Actuar amb els principis ètics i legals relacionats amb la manipulació de dades en funció de l'àmbit d'aplicació.
+
+● Desenvolupar les habilitats d'aprenentatge que els permetin continuar estudiant d'una manera que haurà de ser en gran manera autodirigida o autònoma.
+
+● Desenvolupar la capacitat de cerca, gestió i ús d'informació i recursos en l'àmbit de la ciència de dades.
+
+## Descripció del dataset. Perquè és important i quina pregunta/problema pretén respondre?
+
+En cas aquest cas s'ha escollit el Dataset titanic. Aquest dataset té per objectiu predir o respondre la següent pregunta:
+
+- Quins passatgers tenien més possibilitats de sobreviure?
+    Segons siguin nens/adults, homes/dones, classe alta/baixa...
+
+És important perquè el Titanic va ser el primer baixell en fer una travessia transoceànica a nivell recreatiu a una escala mai vista abans.
+
+Aquest dataset és molt complet ja que recull les dades de totes les persones que van pujar a bord. 
+El tenim divit en un conjunt d'entrenament i un conjunt de test per validar el resultat dels algorismes aplicats en l'entrenament.
+
+Descripció dels camps del dataset:
+
+PassengerId: Id del passatger
+Survived: 0 -> no, 1 -> sí
+Pclass: Classe del ticket, 1 = 1st, 2 = 2nd, 3 = 3rd
+Name: Nom del passatger
+Sex: Home, dona
+Age: Edat
+SibSp: Número de familiars  a bord. Germà, germana, germanastre, germanastra, marit, muller.
+Parch: Número de pares fills a bord respecte al passatger. Pare, mare, filla, fill, fillastre, fillastra.
+Ticket: Número de ticket
+Fare: Preu o tarifa
+Cabin: Número de cabina
+Embarked: Lloc d'embarcament, C = Cherbourg, Q = Queenstown, S = Southampton
+
+Carreguem les llibreries:
+```{r echo=TRUE, message=FALSE, warning=FALSE}  
+  library(dplyr)
+  library(ggplot2)
+  library(missForest)
+  library(VIM)
+  library(caret)
+
+```
+
+Tot seguit carregarem els dos datasets.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+  titanic_train <- read.csv("./Dataset/train.csv", header = TRUE)
+  titanic_test <- read.csv("./Dataset/test.csv", header = TRUE)
+  
+  
+  # Mirem quines columnes té el Dataset
+  head(titanic_train)
+  head(titanic_test)
+
+```
+
+Veiem que del dataset titanic_test falta la columna Survived. Té sentit ja que és la que intentarem predir posteriorment.
+
+
+
+## Integració i selecció de les dades d’interès a analitzar.
+El nom del passatge realment no ens interessa ja que ja tenim el camp PassengerId que ve a ser el mateix. El número de ticket tampoc ens interessa ja que tampoc ens aporta informació rellevant seria gairebe igual que el PassengerID.
+
+## Neteja de les dades.
+
+### Les dades contenen zeros o elements buits? Com gestionaries aquests casos?
+
+Per fer aquest estudi ajuntarem els dos datasets per no haber de repetir les operacions dues vegades.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+titanic_conjunt <- rbind(titanic_test, titanic_train[,c(1,3:12)])
+```
+
+
+Mirem valors nulls:
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+colSums(is.na(titanic_conjunt))
+```
+
+Veiem que edat té 263 valors buits i Fare té un valor buit
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+sum(titanic_conjunt$Cabin=='')
+```
+
+Per altra banda la columna cabina té un total de 1014 valors buits.
+
+
+Pel que fa al tractament:
+
+Columna Cabin.
+  No s'utilitzarà aquesta columna. Té massa valors buits i no té sentit intentar arreglar-la. Quedaria massa artificial.
+  
+La columan Fare només té un valor buit. Al ser un únic valor es pot substituir per la mitja de total dels valors.
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+mean(titanic_conjunt$Fare, na.rm=TRUE)
+
+# Veiem quin és el valor buit:
+titanic_conjunt[!complete.cases(titanic_conjunt$Fare),]
+
+#Correspon al PassengerId=1044 fila 153
+
+titanic_conjunt$Fare[153] <- mean(titanic_conjunt$Fare, na.rm=TRUE)
+```
+
+Pel que fa a l'edat tenim vàries maneres de procedir. Hi han moltes maneres de procedir, entre elles: Podem crear un arbre de decisió per veure cada valor què li correspondria o també podem crear una regressió lineal per predir el valor de cada un.
+
+Primer mirem com es distribueix:
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+titanic_conjunt$Age <- as.numeric(as.character(titanic_conjunt$Age))
+hist(titanic_conjunt$Age, breaks=10, col="red")
+```
+
+Utilitzarem la llibreia missForest per imputar els valors perduts de Age
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+titanic_net<- titanic_conjunt[,c(2,4,5,6,7,9)]
+
+
+titanic_net[is.na(titanic_net)] <- ''
+titanic_net$Fare <- as.numeric(as.character(titanic_net$Fare))
+titanic_net$Age <- as.numeric(as.character(titanic_net$Age))
+
+
+titanic_net[sapply(titanic_net, is.character)] <- lapply(titanic_net[sapply(titanic_net, is.character)], as.factor)
+titanic_net$Pclass <- as.factor(titanic_net$Pclass)
+titanic_net$SibSp <- as.factor(titanic_net$SibSp)
+titanic_net$Parch <- as.factor(titanic_net$Parch)
+
+sapply(titanic_net, class)
+
+imp <- missForest(titanic_net, verbose = TRUE, variablewise = TRUE)
+titanic_net <- as.data.frame(imp$ximp)
+```
+
+
+## Anàlisis de les dades
+
+### Selecció dels grups de dades que es volen analitzar/comparar 
+
+En el conjunt titanic_net ja tenim les dades que voldrem analitzar amb els següents camps:
+- Pclass
+- Sex
+- Age
+- SibSp
+- Parch
+- Fare
+
+Amb això hem eliminat columnes que no ens aportaven informació com són:
+- El id del passatger.
+- El nom del passatger.
+- La cabina (contenia molts valors buits i la seva reconstrucció hauria dut a un esbiaix de la prova)
+- El lloc d'embarcament. Realment pel que volem respondre no la necessitem. el que volem fer es saber característiques que van portar a sobreviure no d'on provenia el que va sobreviure.
+
+### Comprovació de la normalitat i homogeneïtat de la variància
+
+
+Comprobació de la columna Age:
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+ks.test(titanic_net$Age, pnorm, mean(titanic_net$Age), sd(titanic_net$Age))
+shapiro.test(titanic_net$Age)
+
+```
+Ambdues proves mostren que les dades no segueixen una distribució normal pel que fa a la columna Age.
+
+Comprobació de la columna Fare:
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+ks.test(titanic_net$Fare, pnorm, mean(titanic_net$Fare), sd(titanic_net$Fare))
+shapiro.test(titanic_net$Fare)
+
+# Veiem que les dades no segueixen una distribució normal
+```
+
+Comprobació de la columna SibSp:
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+titanic_net$SibSp <- as.numeric(as.character(titanic_net$SibSp))
+
+hist(titanic_net$SibSp, breaks=100, col="red")
+
+ks.test(titanic_net$SibSp, pnorm, mean(titanic_net$SibSp), sd(titanic_net$SibSp))
+shapiro.test(titanic_net$SibSp)
+
+# Veiem que les dades no segueixen una distribució normal
+```
+
+Comprobació de l'homoscedasticitat
+
+
+ Com em vist anteriorment les dades no segueixen una distribució normal per tant s'ha d'utlitzar el test de Fligner-Killeen.
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+ fligner.test(Age ~ Fare, data = titanic_net)
+
+
+```
+Les dades no compleixen l'homoscedasticitat i presenten variàncies diferents.
+
+
+### Aplicació de proves estadístiques per comparar els grups de dades. En funció de  les dades i de l’objectiu de l’estudi, aplicar proves de contrast d’hipòtesis,  correlacions, regressions, etc. Aplicar almenys tres mètodes d’anàlisi diferents.
+
+Ara que ja hem solucionat el problema dels valors faltants tornem a separar els datsets per poder-ne fer els estudis:
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# Seleccionem el conjunt original de train
+titanic_train_net <- titanic_net[1:891,]
+
+# Hi afegim la columan Survived
+titanic_train_net$Survived <- titanic_train$Survived
+
+# Normalitzem les columnes Age i Fare perquè no ens facin models esbiaixats
+
+normalize <- function(x) {
+                        return ((x - min(x)) / (max(x) - min(x)))
+}
+
+titanic_train_net$Age <- normalize(titanic_train_net$Age)
+titanic_train_net$Fare <- normalize(titanic_train_net$Fare)
+
+```
+
+Aplicarem un model supervisat i un no supervisat per veure les diferències en els resultats
+
+Com a model supervisat utilitzarem Randomforest.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+# Agafem 2/3 del dataset per entrenar i la resta per veure com funciona l'algorisme de predicció
+
+train<- titanic_train_net[1:594,]
+test<- titanic_train_net[595:891,]
+
+
+
+set.seed(451)
+
+model_supervisat <- randomForest(factor(Survived) ~ Pclass + Fare + Sex + Age + SibSp + Parch,
+ data = train, importance = TRUE, ntree = 1000,mtry=2)
+
+model_supervisat
+
+varImpPlot(model_supervisat)
+
+```
+
+Utilitzem el model generat en l'algorisme de test:
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+prediccio <- predict(model_supervisat, test)
+```
+
+
+Model no supervisat
+
+Aplicarem l'algorisme K-means per veure quins dos grups ens genera. Com es un mètode no supervist a priori no sabem quants grups ens pot generar el model. En aquest cas específic sabem que només hi ha dos grups, els que van sobreiure i els que no.
+
+Per tant aplicarem l'algorisme per una k = 2.
+
+Aquí podem agafar el model sencer ja que la variable predictora no la utilitzarem
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+titanic_train_net_num <-lapply(titanic_train_net,as.double)
+titanic_train_net_num <- as.data.frame(titanic_train_net_num)
+
+
+kmeans_titanic<-kmeans(titanic_train_net_num[, c(1:6)],2)
+
+```
+
+### Representació dels resultats a partir de taules i gràfiques.
+
+Respecte al model supervisat:
+
+Mirem en una confusion matrix quin error ens ha donat l'algorisme generat:
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+confusionMatrix(prediccio,as.factor(test$Survived))
+```
+
+Al generar la matriu de confusió veiem que el model que hem generat ha classificat bé el 58% dels resultats. Ens fa pensar que té marge de millora.
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+plot(titanic_train_net)
+```
+
+Model no supervisat Kmeans
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+table(titanic_train_net_num$Survived,kmeans_titanic$cluster)
+```
+
+Ens ha classificat bé un total de: 364 observacions de un total de 891. 
+
+Això representa una efectivitat del 40%. 
+
+El model supervisat en aquest cas ha funcionat millor que el no supervisat.
+
+
+### Resolució del problema. A partir dels resultats obtinguts, quines són les conclusions? Els resultats permeten respondre al problema?
+
+Amb els resultats que hem obtingut amb els dos algorismes aplicats hem pogut veure que tan un com l'altre són poc precisos.
+
+El model supervisat ens ha donat una precisió del 58%
+
+El model no supervisat ens ha donat una precisió del 40%
+
+Evidentment escolliríem el model supervisat en cas d'haver-lo d'utilitzar en la vida real.
+
+Els resultats obtinguts permeten resoldre el problema tot i que s'hauria de treballar molt més per extreure tot el potencial que té el dataset i arribar a tenir una precisió més alta.
+
+
+  
+
